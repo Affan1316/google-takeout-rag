@@ -1,0 +1,11 @@
+Service,Action,Timestamp,Links
+Search,CLICK,2024-01-01T10:00:00Z,https://www.google.com/url?q=https%3A%2F%2Fgithub.com
+Search,CLICK,2024-01-01T11:00:00Z,https://www.google.com/url?q=https%3A%2F%2Fstackoverflow.com
+Search,CLICK,2024-01-01T12:00:00Z,https://www.google.com/url?q=https%3A%2F%2Fpython.org
+Search,CLICK,2024-01-01T13:00:00Z,https://www.google.com/url?q=https%3A%2F%2Fdocs.python.org
+Search,CLICK,2024-01-01T14:00:00Z,https://www.google.com/url?q=https%3A%2F%2Fmedium.com
+Search,CLICK,2024-01-01T15:00:00Z,https://www.google.com/url?q=https%3A%2F%2Ftowardsdatascience.com
+Search,CLICK,2024-01-01T16:00:00Z,https://www.google.com/url?q=https%3A%2F%2Fkaggle.com
+Search,CLICK,2024-01-01T17:00:00Z,https://www.google.com/url?q=https%3A%2F%2Fpandas.pydata.org
+Search,CLICK,2024-01-01T18:00:00Z,https://www.google.com/url?q=https%3A%2F%2Fnumpy.org
+Search,CLICK,2024-01-01T19:00:00Z,https://developer.android.com

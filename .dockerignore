@@ -1,0 +1,14 @@
+.git
+.venv
+venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.DS_Store
+.idea
+.vscode
+frontend/flutter_application/build/
+frontend/flutter_application/.dart_tool/
+frontend/flutter_application/.pub-cache/
+temp/
