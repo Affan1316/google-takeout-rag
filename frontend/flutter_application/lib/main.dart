@@ -761,9 +761,22 @@ class _ChatScreenState extends State<ChatScreen> {
     super.initState();
     _loadSessionsFromStorage();
     _checkAndStartBackend();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _showConnectDialog();
-    });
+    _showInitialDialogIfNeeded();
+  }
+
+  Future<void> _showInitialDialogIfNeeded() async {
+    try {
+      final savedCreds = await _historyService.loadCredentials();
+      if (savedCreds == null || savedCreds.url.isEmpty) {
+        if (mounted) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _showConnectDialog();
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint("Error evaluating startup credentials check: $e");
+    }
   }
 
   Future<void> _loadSessionsFromStorage() async {
@@ -1382,6 +1395,10 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _autoIngestChrome(String profile) async {
+    if (!_isConnected || _isLoading || _isIndexing) {
+      _addLog("[AUTO-INGEST] Blocked request because app is busy, indexing, or disconnected.");
+      return;
+    }
     setState(() {
       _isLoading = true;
     });
@@ -1701,6 +1718,10 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _uploadCSV(String apiKey) async {
+    if (!_isConnected || _isLoading || _isIndexing) {
+      _addLog("[UPLOAD] Blocked file picker launch because app is busy, indexing, or disconnected.");
+      return;
+    }
     try {
       FilePickerResult? result = await FilePicker.pickFiles(
         type: FileType.custom,
@@ -1785,6 +1806,10 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _sendMessage(String text) async {
     if (text.trim().isEmpty) return;
+    if (!_isConnected || _isLoading || _isIndexing) {
+      _addLog("[CHAT] Blocked message send because app is busy, indexing, or disconnected.");
+      return;
+    }
 
     _addMessage(ChatMessage(text: text, isUser: true));
     setState(() {
@@ -2092,6 +2117,10 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _applyDrift(List<String> categories) async {
+    if (!_isConnected || _isLoading || _isIndexing) {
+      _addLog("[DRIFT] Blocked apply drift request because app is busy, indexing, or disconnected.");
+      return;
+    }
     setState(() {
       _isLoading = true;
     });
@@ -2181,7 +2210,7 @@ class _ChatScreenState extends State<ChatScreen> {
               width: 12,
               height: 12,
               child: CircularProgressIndicator(
-                strokeWidth: 2,
+                strokeWidth: 2.0,
                 valueColor: AlwaysStoppedAnimation<Color>(AIHistoryApp._accentWarm),
               ),
             )
@@ -2199,16 +2228,7 @@ class _ChatScreenState extends State<ChatScreen> {
         ],
       ),
     );
-
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.only(right: 8.0),
-        child: Tooltip(
-          message: 'FastAPI Backend Status',
-          child: badge,
-        ),
-      ),
-    );
+    return badge;
   }
 
   @override
@@ -2223,36 +2243,46 @@ class _ChatScreenState extends State<ChatScreen> {
           _buildServerStatusBadge(),
           if (!_isConnected)
             TextButton.icon(
-              onPressed: _showConnectDialog,
-              icon: const Icon(Icons.link_rounded, size: 16),
-              label: const Text("Connect DB"),
+              onPressed: _isServerStarting || _isConnectingDb ? null : _showConnectDialog,
+              icon: _isConnectingDb
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 1.5,
+                        valueColor: AlwaysStoppedAnimation<Color>(AIHistoryApp._accentPrimary),
+                      ),
+                    )
+                  : const Icon(Icons.link_rounded, size: 16),
+              label: Text(_isConnectingDb ? "Connecting..." : "Connect DB"),
               style: TextButton.styleFrom(
                 foregroundColor: AIHistoryApp._accentPrimary,
               ),
             ),
+          if (_isConnected) ...[
+            IconButton(
+              icon: const Icon(Icons.upload_file_rounded, color: AIHistoryApp._accentWarm),
+              tooltip: 'Ingest Browsing History',
+              onPressed: _isIndexing || _isLoading || _isServerStarting || _isConnectingDb ? null : _showUploadDialog,
+            ),
+            IconButton(
+              icon: const Icon(Icons.psychology_rounded, color: AIHistoryApp._accentSecondary),
+              tooltip: 'Analyze Taxonomy Drift',
+              onPressed: _isIndexing || _isLoading || _isServerStarting || _isConnectingDb ? null : _showDriftDialog,
+            ),
+          ],
           IconButton(
             icon: const Icon(Icons.terminal_rounded, color: Colors.white70),
             tooltip: 'View Server Logs',
             onPressed: _showTerminalLogs,
           ),
           const SizedBox(width: 8),
-          if (_isConnected) ...[
-            IconButton(
-              icon: const Icon(Icons.psychology_rounded, color: AIHistoryApp._accentSecondary),
-              tooltip: 'Review Taxonomy Drift',
-              onPressed: _isIndexing ? null : _showDriftDialog,
-            ),
-            IconButton(
-              icon: const Icon(Icons.upload_file_rounded, color: AIHistoryApp._accentWarm),
-              tooltip: 'Upload CSV',
-              onPressed: _isIndexing ? null : _showUploadDialog,
-            ),
-          ],
         ],
       ),
       drawer: Drawer(
         backgroundColor: AIHistoryApp._bgCard,
         elevation: 16,
+
         child: Column(
           children: [
             // Drawer Header
