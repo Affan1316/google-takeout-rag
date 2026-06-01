@@ -211,6 +211,7 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isConnected = false;
   bool _isIndexing = false;
   String _indexingMessage = "Ready";
+  bool _isConnectingDb = false;
   Timer? _statusTimer;
 
   // Local Storage & Chat Sessions State
@@ -1057,6 +1058,61 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _showConnectDialog() async {
+    if (_isConnectingDb) {
+      return showDialog(
+        context: context,
+        barrierDismissible: true,
+        builder: (context) {
+          return AlertDialog(
+            backgroundColor: AIHistoryApp._bgCard,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+            title: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AIHistoryApp._accentPrimary.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      valueColor: AlwaysStoppedAnimation<Color>(AIHistoryApp._accentPrimary),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Text(
+                  'Auto-Connecting...',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+                ),
+              ],
+            ),
+            content: const Padding(
+              padding: EdgeInsets.only(top: 8.0),
+              child: Text(
+                'The application is currently establishing connection and verifying schemas in the background. Please wait...',
+                style: TextStyle(color: Colors.white70, fontSize: 14, height: 1.5),
+              ),
+            ),
+            actions: [
+              TextButton(
+                style: TextButton.styleFrom(
+                  foregroundColor: AIHistoryApp._accentPrimary,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                ),
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK', style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            ],
+          );
+        },
+      );
+    }
+
     final savedCreds = await _historyService.loadCredentials();
     
     final TextEditingController dbUrlController = TextEditingController(text: savedCreds?.url ?? '');
@@ -1201,7 +1257,12 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _connectToDatabase(String url, String password, String llmApiKey) async {
+    if (_isConnectingDb) {
+      _addLog("[CONNECT] Prevented duplicate parallel database connection request.");
+      return;
+    }
     setState(() {
+      _isConnectingDb = true;
       _isLoading = true;
     });
     _addMessage(ChatMessage(text: "⚙️ Connecting to services and verifying schemas...", isUser: false));
@@ -1280,6 +1341,7 @@ class _ChatScreenState extends State<ChatScreen> {
       );
     } finally {
       setState(() {
+        _isConnectingDb = false;
         _isLoading = false;
       });
     }
