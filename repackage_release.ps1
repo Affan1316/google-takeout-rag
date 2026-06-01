@@ -1,49 +1,10 @@
-# Google Takeout RAG — Standalone Windows Builder Script
-# This script compiles the FastAPI backend to an exe, builds the Flutter frontend,
-# integrates them into a premium standalone directory, and compresses it to a ZIP archive.
-
 $ErrorActionPreference = "Stop"
 
 Write-Host "==================================================" -ForegroundColor Cyan
-Write-Host "Starting Standalone Windows Release Package Builder" -ForegroundColor Cyan
+Write-Host "Quick Repackager - Skipping PyInstaller Recompilation" -ForegroundColor Cyan
 Write-Host "==================================================" -ForegroundColor Cyan
 
-# Step 1: Validate dependencies and paths
-Write-Host "`n[1/5] Verifying environment and tools..." -ForegroundColor Yellow
-if (-not (Test-Path ".\venv\Scripts\python.exe")) {
-    Write-Error "Virtual environment not found at .\venv. Please create it first."
-}
-
-if (-not (Test-Path ".\venv\Scripts\pyinstaller.exe")) {
-    Write-Host "PyInstaller not found. Installing..." -ForegroundColor DarkYellow
-    & ".\venv\Scripts\pip.exe" install pyinstaller
-}
-Write-Host "Environment checked successfully." -ForegroundColor Green
-
-# Step 2: Compile FastAPI backend
-Write-Host "`n[2/5] Compiling Python FastAPI backend with PyInstaller..." -ForegroundColor Yellow
-Write-Host "Running PyInstaller compilation (this may take a minute)..." -ForegroundColor Gray
-& ".\venv\Scripts\pyinstaller.exe" --noconfirm --onefile --name "app" --clean app.py
-
-if (-not (Test-Path "dist/app.exe")) {
-    Write-Error "PyInstaller failed: dist/app.exe was not created."
-}
-Write-Host "FastAPI backend compiled successfully to dist/app.exe" -ForegroundColor Green
-
-# Step 3: Build Flutter desktop frontend
-Write-Host "`n[3/5] Compiling Flutter Windows desktop frontend..." -ForegroundColor Yellow
-cd "frontend/flutter_application"
-& flutter build windows --release
-cd "../.."
-
 $flutterBuildDir = "frontend/flutter_application/build/windows/x64/runner/Release"
-if (-not (Test-Path "$flutterBuildDir/flutter_application.exe")) {
-    Write-Error "Flutter build failed: executable not found."
-}
-Write-Host "Flutter frontend built successfully in release mode." -ForegroundColor Green
-
-# Step 4: Assemble the premium unified release folder
-Write-Host "`n[4/5] Assembling Standalone Unified Release Folder..." -ForegroundColor Yellow
 $releaseParent = "release_build"
 $releaseDir = "release_build/google-takeout-rag"
 $backendReleaseDir = "$releaseDir/backend"
@@ -51,7 +12,7 @@ $examplesReleaseDir = "$releaseDir/examples"
 
 # Clean old release build folders
 if (Test-Path $releaseParent) {
-    Write-Host "Terminating any locked standalone processes..." -ForegroundColor Gray
+    Write-Host "Terminating any locked processes..." -ForegroundColor Gray
     Stop-Process -Name "app" -Force -ErrorAction SilentlyContinue
     Stop-Process -Name "google-takeout-rag" -Force -ErrorAction SilentlyContinue
     Start-Sleep -Seconds 1
@@ -65,18 +26,18 @@ New-Item -ItemType Directory -Force -Path $backendReleaseDir | Out-Null
 New-Item -ItemType Directory -Force -Path $examplesReleaseDir | Out-Null
 
 # Copy Flutter binaries
-Write-Host "Copying Flutter frontend runner..." -ForegroundColor Gray
+Write-Host "Copying Flutter frontend..." -ForegroundColor Gray
 Copy-Item -Path "$flutterBuildDir/*" -Destination $releaseDir -Recurse -Force -Exclude "*.pdb"
 
-# Rename Flutter executable to user-friendly name
+# Rename Flutter executable
 Write-Host "Renaming executable to google-takeout-rag.exe..." -ForegroundColor Gray
 Rename-Item -Path "$releaseDir/flutter_application.exe" -NewName "google-takeout-rag.exe"
 
-# Copy PyInstaller Backend Executable
+# Copy PyInstaller Backend Executable (already compiled in dist/app.exe)
 Write-Host "Copying compiled Python backend..." -ForegroundColor Gray
 Copy-Item -Path "dist/app.exe" -Destination "$backendReleaseDir/app.exe" -Force
 
-# Copy example ingestion CSV files
+# Copy example CSVs
 Write-Host "Copying example CSV datasets..." -ForegroundColor Gray
 if (Test-Path "test_search_sample.csv") {
     Copy-Item -Path "test_search_sample.csv" -Destination $examplesReleaseDir -Force
@@ -85,16 +46,13 @@ if (Test-Path "test_youtube_sample.csv") {
     Copy-Item -Path "test_youtube_sample.csv" -Destination $examplesReleaseDir -Force
 }
 
-Write-Host "Unified Standalone folder assembled successfully at: $releaseDir" -ForegroundColor Green
-
-# Step 5: Compress Release Package into ZIP
-Write-Host "`n[5/5] Creating ZIP release archive..." -ForegroundColor Yellow
+# Compress to ZIP
 $zipPath = "google-takeout-rag.zip"
 if (Test-Path $zipPath) {
     Remove-Item -Path $zipPath -Force
 }
 
-Write-Host "Waiting for OS file handles to release (sleeping 5 seconds)..." -ForegroundColor Gray
+Write-Host "Waiting for anti-virus scan (sleeping 5 seconds)..." -ForegroundColor Gray
 Start-Sleep -Seconds 5
 
 $maxZipRetries = 6
@@ -109,15 +67,12 @@ for ($attempt = 1; $attempt -le $maxZipRetries; $attempt++) {
         if ($attempt -eq $maxZipRetries) {
             Write-Error "Failed to archive release files after $maxZipRetries attempts: $_"
         }
-        Write-Host "⚠️ Archive failed due to lock (likely anti-virus scan). Retrying in 10 seconds..." -ForegroundColor DarkYellow
+        Write-Host "⚠️ Archive failed due to lock. Retrying in 10 seconds..." -ForegroundColor DarkYellow
         Start-Sleep -Seconds 10
     }
 }
 
 Write-Host "`n==================================================" -ForegroundColor Cyan
-Write-Host "BUILD COMPLETED SUCCESSFULLY!" -ForegroundColor Green
+Write-Host "REPACKAGING COMPLETED SUCCESSFULLY!" -ForegroundColor Green
 Write-Host "Standalone ZIP: d:\GOOGLE_TAKEOUT_RAG\google-takeout-rag.zip" -ForegroundColor Green
 Write-Host "==================================================" -ForegroundColor Cyan
-
-
-

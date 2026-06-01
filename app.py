@@ -1197,38 +1197,18 @@ def store_youtube_history(df):
     for attempt in range(max_retries):
         try:
             rows_inserted = 0
-            # Fetch existing links in a dedicated, short-lived connection
-            with DBState.engine.connect() as conn:
-                existing_links = {row[0] for row in conn.execute(text("SELECT links FROM youtube_history")).fetchall()}
-                
-            # Prepare all rows to insert
-            insert_data = []
+            batch_size = 500
+            
+            # Local deduplication (avoid processing duplicates within the upload batch)
+            unique_df_rows = []
+            seen_in_upload = set()
             for _, row in df.iterrows():
                 link = row.get('Links')
-                if link in existing_links:
-                    continue  # Skip duplicate
+                if not link or link in seen_in_upload:
+                    continue
+                seen_in_upload.add(link)
+                unique_df_rows.append(row)
                 
-                # Check for duplicates within the current upload itself
-                existing_links.add(link)
-                
-                insert_data.append({
-                    "links": link,
-                    "title": row.get('Video_Title'),
-                    "channel": row.get('Channel_Title'),
-                    "views": safe_int(row.get('View_Count')),
-                    "likes": safe_int(row.get('Like_Count')),
-                    "category": row.get('Category_Name'),
-                    "timestamp": row.get('Timestamp')
-                })
-
-            if not insert_data:
-                print("✅ No new YouTube records to insert")
-                return 0
-
-            print(f"Inserting {len(insert_data)} new YouTube records into database in batches...")
-            
-            # Batch insertion logic with fallback
-            batch_size = 500
             insert_query = text("""
                 INSERT INTO youtube_history 
                 (links, video_title, channel_title, view_count, like_count, 
@@ -1239,10 +1219,38 @@ def store_youtube_history(df):
             
             def log_youtube_error(item, err):
                 print(f"❌ Failed to insert YouTube row {item.get('links')}: {err}")
-
-            for k in range(0, len(insert_data), batch_size):
-                chunk = insert_data[k:k + batch_size]
-                rows_inserted += insert_chunk_recursive(DBState.engine, insert_query, chunk, log_youtube_error)
+                
+            # Process in localized chunks of 500
+            for k in range(0, len(unique_df_rows), batch_size):
+                chunk_rows = unique_df_rows[k:k + batch_size]
+                chunk_links = [row.get('Links') for row in chunk_rows]
+                
+                # Fetch existing links in database only for the active chunk
+                with DBState.engine.connect() as conn:
+                    placeholders = ", ".join(f":l{i}" for i in range(len(chunk_links)))
+                    query = text(f"SELECT links FROM youtube_history WHERE links IN ({placeholders})")
+                    params = {f"l{i}": link for i, link in enumerate(chunk_links)}
+                    existing_chunk_links = {row[0] for row in conn.execute(query, params).fetchall()}
+                
+                # Prepare insert chunk by filtering out database duplicates
+                insert_batch = []
+                for row in chunk_rows:
+                    link = row.get('Links')
+                    if link in existing_chunk_links:
+                        continue
+                    
+                    insert_batch.append({
+                        "links": link,
+                        "title": row.get('Video_Title'),
+                        "channel": row.get('Channel_Title'),
+                        "views": safe_int(row.get('View_Count')),
+                        "likes": safe_int(row.get('Like_Count')),
+                        "category": row.get('Category_Name'),
+                        "timestamp": row.get('Timestamp')
+                    })
+                
+                if insert_batch:
+                    rows_inserted += insert_chunk_recursive(DBState.engine, insert_query, insert_batch, log_youtube_error)
             
             print(f"✅ Successfully stored {rows_inserted} YouTube records in database")
             return rows_inserted
@@ -1272,35 +1280,18 @@ def store_search_history(df):
     for attempt in range(max_retries):
         try:
             rows_inserted = 0
-            # Fetch existing links in a dedicated, short-lived connection
-            with DBState.engine.connect() as conn:
-                existing_links = {row[0] for row in conn.execute(text("SELECT links FROM search_history")).fetchall()}
-                
-            # Prepare all rows to insert
-            insert_data = []
+            batch_size = 500
+            
+            # Local deduplication (avoid processing duplicates within the upload batch)
+            unique_df_rows = []
+            seen_in_upload = set()
             for _, row in df.iterrows():
                 link = row.get('Links')
-                if link in existing_links:
-                    continue  # Skip duplicate
+                if not link or link in seen_in_upload:
+                    continue
+                seen_in_upload.add(link)
+                unique_df_rows.append(row)
                 
-                # Check for duplicates within the current upload itself
-                existing_links.add(link)
-                
-                insert_data.append({
-                    "links": link,
-                    "website": row.get('Actual_Website'),
-                    "timestamp": row.get('Timestamp'),
-                    "page_title": row.get('Page_Title')
-                })
-
-            if not insert_data:
-                print("✅ No new Search records to insert")
-                return 0
-
-            print(f"Inserting {len(insert_data)} new Search records into database in batches...")
-            
-            # Batch insertion logic with fallback
-            batch_size = 500
             insert_query = text("""
                 INSERT INTO search_history 
                 (links, actual_website, timestamp, service, page_title)
@@ -1309,10 +1300,35 @@ def store_search_history(df):
             
             def log_search_error(item, err):
                 print(f"❌ Failed to insert Search row {item.get('links')}: {err}")
-
-            for k in range(0, len(insert_data), batch_size):
-                chunk = insert_data[k:k + batch_size]
-                rows_inserted += insert_chunk_recursive(DBState.engine, insert_query, chunk, log_search_error)
+                
+            # Process in localized chunks of 500
+            for k in range(0, len(unique_df_rows), batch_size):
+                chunk_rows = unique_df_rows[k:k + batch_size]
+                chunk_links = [row.get('Links') for row in chunk_rows]
+                
+                # Fetch existing links in database only for the active chunk
+                with DBState.engine.connect() as conn:
+                    placeholders = ", ".join(f":l{i}" for i in range(len(chunk_links)))
+                    query = text(f"SELECT links FROM search_history WHERE links IN ({placeholders})")
+                    params = {f"l{i}": link for i, link in enumerate(chunk_links)}
+                    existing_chunk_links = {row[0] for row in conn.execute(query, params).fetchall()}
+                
+                # Prepare insert chunk by filtering out database duplicates
+                insert_batch = []
+                for row in chunk_rows:
+                    link = row.get('Links')
+                    if link in existing_chunk_links:
+                        continue
+                    
+                    insert_batch.append({
+                        "links": link,
+                        "website": row.get('Actual_Website'),
+                        "timestamp": row.get('Timestamp'),
+                        "page_title": row.get('Page_Title')
+                    })
+                
+                if insert_batch:
+                    rows_inserted += insert_chunk_recursive(DBState.engine, insert_query, insert_batch, log_search_error)
             
             print(f"✅ Successfully stored {rows_inserted} Search records in database")
             return rows_inserted
