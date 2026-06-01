@@ -94,6 +94,9 @@ if (Test-Path $zipPath) {
     Remove-Item -Path $zipPath -Force
 }
 
+Write-Host "Waiting for OS file handles to release (sleeping 5 seconds)..." -ForegroundColor Gray
+Start-Sleep -Seconds 5
+
 Compress-Archive -Path $releaseDir -DestinationPath $zipPath -Force
 Write-Host "ZIP Archive created successfully at: $zipPath" -ForegroundColor Green
 
