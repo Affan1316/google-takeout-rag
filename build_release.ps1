@@ -51,6 +51,11 @@ $examplesReleaseDir = "$releaseDir/examples"
 
 # Clean old release build folders
 if (Test-Path $releaseParent) {
+    Write-Host "Terminating any locked standalone processes..." -ForegroundColor Gray
+    Stop-Process -Name "app" -Force -ErrorAction SilentlyContinue
+    Stop-Process -Name "google-takeout-rag" -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 1
+    
     Write-Host "Cleaning up old release files..." -ForegroundColor Gray
     Remove-Item -Path $releaseParent -Recurse -Force
 }
