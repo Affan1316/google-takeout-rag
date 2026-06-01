@@ -45,7 +45,7 @@ Write-Host "Flutter frontend built successfully in release mode." -ForegroundCol
 # Step 4: Assemble the premium unified release folder
 Write-Host "`n[4/5] Assembling Standalone Unified Release Folder..." -ForegroundColor Yellow
 $releaseParent = "release_build"
-$releaseDir = "release_build/HistoryAnalyst-Windows-x64"
+$releaseDir = "release_build/google-takeout-rag"
 $backendReleaseDir = "$releaseDir/backend"
 $examplesReleaseDir = "$releaseDir/examples"
 
@@ -64,8 +64,8 @@ Write-Host "Copying Flutter frontend runner..." -ForegroundColor Gray
 Copy-Item -Path "$flutterBuildDir/*" -Destination $releaseDir -Recurse -Force -Exclude "*.pdb"
 
 # Rename Flutter executable to user-friendly name
-Write-Host "Renaming executable to HistoryAnalyst.exe..." -ForegroundColor Gray
-Rename-Item -Path "$releaseDir/flutter_application.exe" -NewName "HistoryAnalyst.exe"
+Write-Host "Renaming executable to google-takeout-rag.exe..." -ForegroundColor Gray
+Rename-Item -Path "$releaseDir/flutter_application.exe" -NewName "google-takeout-rag.exe"
 
 # Copy PyInstaller Backend Executable
 Write-Host "Copying compiled Python backend..." -ForegroundColor Gray
@@ -84,7 +84,7 @@ Write-Host "Unified Standalone folder assembled successfully at: $releaseDir" -F
 
 # Step 5: Compress Release Package into ZIP
 Write-Host "`n[5/5] Creating ZIP release archive..." -ForegroundColor Yellow
-$zipPath = "HistoryAnalyst-Windows-x64.zip"
+$zipPath = "google-takeout-rag.zip"
 if (Test-Path $zipPath) {
     Remove-Item -Path $zipPath -Force
 }
@@ -94,5 +94,8 @@ Write-Host "ZIP Archive created successfully at: $zipPath" -ForegroundColor Gree
 
 Write-Host "`n==================================================" -ForegroundColor Cyan
 Write-Host "BUILD COMPLETED SUCCESSFULLY!" -ForegroundColor Green
-Write-Host "Standalone ZIP: d:\GOOGLE_TAKEOUT_RAG\HistoryAnalyst-Windows-x64.zip" -ForegroundColor Green
+Write-Host "Standalone ZIP: d:\GOOGLE_TAKEOUT_RAG\google-takeout-rag.zip" -ForegroundColor Green
 Write-Host "==================================================" -ForegroundColor Cyan
+
+
+

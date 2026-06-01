@@ -136,5 +136,5 @@ desktop.ini
 # Large standalone release artifacts
 release_build/
 *.zip
-HistoryAnalyst-Windows-x64.zip
+google-takeout-rag.zip
 
