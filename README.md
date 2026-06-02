@@ -185,18 +185,11 @@ The `interest_categories` table is small (30-50 rows), but classification accura
 
 ### 4.5 Why LangGraph ReAct Agent? — A Deep Dive
 
-This is the **intellectual core** of the entire system. Everything else — the database schema, the embeddings, the Flutter UI — exists to serve the agent. Understanding how it works, why it was designed this way, and what alternatives were rejected is essential to understanding the application.
+This is the **intellectual core** of the entire system. We model the RAG query engine as a LangGraph ReAct agent, enabling the system to dynamically choose between structured SQL queries, semantic vector search, or monthly statistical analysis depending on the incoming question. The agent is modeled as a state graph using LangGraph's declarative state transition protocol rather than a legacy imperative loop, enabling fine-grained control, state persistence, and intermediate step streaming.
 
-#### 4.5.1 The ReAct Pattern — Theory
+#### 4.5.1 The ReAct Pattern & Graph Architecture
 
-ReAct (Reason + Act), introduced by Yao et al. (2022), is a prompting paradigm where an LLM alternates between:
-
-1. **Thought** — The LLM reasons about what information it needs and which tool would provide it
-2. **Action** — The LLM invokes a tool with specific parameters
-3. **Observation** — The tool's output is fed back to the LLM as new context
-4. **Repeat** — The LLM decides whether to use another tool or produce a final answer
-
-This creates a **dynamic execution graph** rather than a fixed pipeline. The number of steps, the tools used, and the order of operations are all decided at runtime by the LLM based on the specific question.
+ReAct (Reason + Act) is a prompting paradigm where an LLM alternates between reasoning (Thought), invoking tools (Action), and observing their outputs (Observation) in a loop until it reaches a final answer. This creates a dynamic execution graph governed by runtime choices rather than a rigid pipeline.
 
 ```
                     ┌─────────────────────┐
@@ -234,122 +227,45 @@ This creates a **dynamic execution graph** rather than a fixed pipeline. The num
            (Multi-tool: loop back)────────────┘
 ```
 
-**The key insight:** Traditional RAG systems follow a deterministic path — embed the query, retrieve the top-K documents, feed them to the LLM, generate an answer. This works for one type of question. But our system needs to handle fundamentally different question types (exact counts vs. conceptual searches vs. longitudinal analysis), and the agent must figure out *which type each question is* before deciding what to do.
-
-#### 4.5.2 Why LangGraph Over LangChain AgentExecutor?
-
-LangChain's older `AgentExecutor` (now deprecated) also implements ReAct, so why use LangGraph's `create_react_agent` instead?
-
-| Factor | LangChain AgentExecutor | LangGraph ReAct Agent |
-|--------|------------------------|----------------------|
-| **Architecture** | Imperative Python loop | Declarative state graph (nodes + edges) |
-| **State management** | Implicit (hidden in executor) | Explicit `MessagesState` — full message history accessible at every step |
-| **Streaming** | Partial support | First-class streaming of intermediate steps and tool outputs |
-| **Customizability** | Monkey-patching or subclassing | Add/remove/rewire nodes in the graph |
-| **Error recovery** | Crashes on tool errors | LLM sees the error as an Observation and can self-correct |
-| **Maintenance** | Deprecated by LangChain team | Actively maintained as the recommended replacement |
-
-The critical advantage is **state graph architecture**. LangGraph models the agent as a directed graph:
-
-```
-                 ┌──────────┐
-        ┌───────►│  Agent   │◄────────┐
-        │        │  Node    │         │
-        │        └────┬─────┘         │
-        │             │               │
-        │     ┌───────▼────────┐      │
-        │     │  Should use    │      │
-        │     │  tools?        │      │
-        │     └───┬────────┬───┘      │
-        │         │ Yes    │ No       │
-        │    ┌────▼────┐   │          │
-        │    │  Tool   │   │          │
-        │    │  Node   │   │          │
-        │    └────┬────┘   │          │
-        │         │        │          │
-        └─────────┘   ┌────▼────┐     │
-                      │  END    │     │
-                      └─────────┘     │
-```
-
-Each node in the graph is a pure function over `MessagesState` — a list of messages that grows as the agent works. The **Agent Node** calls the LLM. The **Tool Node** executes whichever tool the LLM selected. Edges route based on whether the LLM's response contains tool calls or a final answer. This makes the execution traceable, debuggable, and deterministic for the same input.
-
-#### 4.5.3 Agent Construction — How It's Built
-
-The agent is constructed in `init_db_and_agent()` with this code:
+The agent is constructed in `init_db_and_agent()` as a directed graph where each node is a pure function over a shared `MessagesState`:
 
 ```python
-# 1. Create the LLM client (DeepSeek via OpenAI-compatible API)
+# Create the LLM client (DeepSeek Chat)
 llm = ChatOpenAI(
     api_key=llm_api_key,
     base_url="https://api.deepseek.com",
     model="deepseek-chat",
-    temperature=0          # ← Deterministic reasoning, no creativity
+    temperature=0
 )
 
-# 2. Get the SQL toolkit (auto-generates tools from the database schema)
+# Initialize standard SQL tools and append custom domain tools
 toolkit = SQLDatabaseToolkit(db=db, llm=llm)
-
-# 3. Merge SQL tools with our custom tools
 tools = toolkit.get_tools() + [semantic_youtube_search, generate_longitudinal_report]
 
-# 4. Build the agent graph
+# Compile the LangGraph ReAct agent
 DBState.agent_executor = create_react_agent(
     model=llm,
     tools=tools,
-    prompt=system_instruction    # ← The system prompt that governs behavior
+    prompt=system_instruction
 )
 ```
 
-**Why `temperature=0`?** The agent's job is *structured reasoning* — deciding which SQL query to write, which tool to call, how to interpret a result. This is a logic task, not a creative task. Temperature=0 makes the LLM's outputs maximally deterministic: given the same question and database state, the agent will produce the same tool selection and SQL queries every time. This is critical for reliability — you don't want the agent to "creatively" decide to skip the schema inspection step or write a different SQL query each run.
+#### 4.5.2 Tool Inventory & Natural Language Dispatch
 
-#### 4.5.4 The Complete Tool Inventory
+The agent has access to **7 tools** — 5 from the standard SQL database toolkit for table schema discovery and raw SQL execution, and 2 custom domain-specific tools:
 
-The agent has access to **7 tools** — 5 from the SQL toolkit and 2 custom:
+| Tool | Signature | Purpose / When Dispatched |
+|------|-----------|---------------------------|
+| `sql_db_list_tables` | `() → str` | Lists all tables in the database to discover database structure dynamically. |
+| `sql_db_schema` | `(table_names: str) → str` | Fetches `CREATE TABLE` DDL and sample rows for the specified tables. |
+| `sql_db_query` | `(query: str) → str` | Executes a raw SQL `SELECT` statement and returns formatted results. |
+| `sql_db_query_checker` | `(query: str) → str` | Validates SQL syntax and query logic prior to database execution. |
+| `semantic_youtube_search` | `(concept: str) → str` | Embeds query via BGE-small, executing pgvector `<=>` cosine distance similarity matching. |
+| `generate_longitudinal_report` | `(timezone: str) → str` | Generates monthly category counts and yearly narrative highlights for broad interest reports. |
 
-##### SQL Toolkit Tools (Auto-Generated by LangChain)
+#### 4.5.3 Behavioral Guardrails (System Prompt)
 
-| # | Tool | Signature | What It Does | Why The Agent Needs It |
-|---|------|-----------|-------------|----------------------|
-| 1 | `sql_db_list_tables` | `() → str` | Returns a comma-separated list of all table names in the database | **Schema discovery.** The agent doesn't hardcode table names. Before every SQL query, it first asks "what tables exist?" This makes the agent robust to schema changes — if you add a new table, the agent discovers it automatically. |
-| 2 | `sql_db_schema` | `(table_names: str) → str` | Returns the `CREATE TABLE` DDL for the requested tables, including column names, types, and sample rows | **Column discovery.** The agent uses this to learn that `youtube_history` has columns like `video_title`, `channel_title`, `view_count`, etc. Without this, the agent would have to guess column names and would frequently write invalid SQL. The sample rows also help it understand data formats (e.g., timestamps are ISO 8601). |
-| 3 | `sql_db_query` | `(query: str) → str` | Executes a raw SQL `SELECT` query and returns the result as a formatted string | **The workhorse.** Every exact question ("how many?", "which?", "when?", "top 5?") is answered by generating and executing SQL. The tool is read-only — it rejects INSERT/UPDATE/DELETE statements. |
-| 4 | `sql_db_query_checker` | `(query: str) → str` | Passes a SQL query through the LLM to check for common mistakes before execution | **Self-validation.** Before running SQL, the agent can optionally validate it. This catches issues like wrong column names, missing WHERE clauses, or syntax errors *before* they hit the database. |
-| 5 | `sql_db_list_tables` (info variant) | — | Provides additional metadata about tables | **Contextual understanding.** Helps the agent decide which tables are relevant for a given question. |
-
-##### Custom Domain-Specific Tools
-
-| # | Tool | Signature | What It Does | Why It Exists |
-|---|------|-----------|-------------|---------------|
-| 6 | `semantic_youtube_search` | `(concept: str) → str` | Embeds the concept string into a 384-dim vector using BGE-small, then runs a pgvector `<=>` cosine distance query to find the 5 most semantically similar YouTube videos | **SQL can't do meaning.** If the user asks "find videos about cooking", SQL `LIKE '%cooking%'` would miss "Gordon Ramsay Tutorial", "Making Pasta from Scratch", and "Kitchen Knife Review" — none of which contain the word "cooking". Vector similarity finds them because their embeddings are geometrically close in 384-dimensional space. |
-| 7 | `generate_longitudinal_report` | `(timezone: str) → str` | Executes a complex multi-CTE SQL query that builds a monthly category×count statistical matrix across the user's entire history, extracts yearly top categories, fetches 2 representative log examples per year, and returns a compressed JSON package | **LLM context management.** Asking the LLM to analyze years of raw data would exceed token limits. This tool pre-computes the statistical summary and feeds the LLM a compressed data package (typically 2-5KB of JSON), which the LLM then synthesizes into a narrative report about how the user's interests evolved over time. |
-
-##### How Tool Selection Works — The Docstring Protocol
-
-The LLM decides which tool to use based on the **tool's docstring** (the Python function's documentation string). LangGraph serializes each tool's name, parameter types, and docstring into the LLM's system context as a function schema.
-
-Here are the actual docstrings from our codebase:
-
-```python
-@tool
-def semantic_youtube_search(concept: str) -> str:
-    """Use this tool when the user asks to find YouTube videos 
-    by meaning, concept, topic, or similarity."""
-
-@tool
-def generate_longitudinal_report(timezone: str = 'Asia/Karachi') -> str:
-    """Use this tool when the user asks for a broad, chronological 
-    report of their interests over time, or asks how their habits 
-    have evolved over the years."""
-```
-
-The docstrings are carefully written to act as **routing rules**. When the LLM sees "find videos about machine learning", it pattern-matches against the docstring "find YouTube videos by meaning, concept, topic, or similarity" and selects `semantic_youtube_search`. When it sees "how have my interests changed?", it matches "chronological report of their interests over time" and selects `generate_longitudinal_report`. For everything else (counts, dates, specific lookups), it falls through to the SQL tools.
-
-**This is a form of natural language dispatch** — the LLM is essentially a router that reads function documentation and decides which function to call. The quality of the docstrings directly determines the quality of tool selection.
-
-#### 4.5.5 The System Prompt — Behavioral Guardrails
-
-The system prompt is the most important piece of text in the entire application. It constrains the agent's behavior to prevent dangerous, wasteful, or confusing actions:
+The agent's behavior is restricted by the following system instruction to prevent unsafe queries, DML execution, or context window overflows:
 
 ```python
 system_instruction = """
@@ -378,35 +294,16 @@ Rules:
 """
 ```
 
-Each rule exists for a specific reason:
+#### 4.5.4 Traced Walkthrough
 
-| Rule | Rationale |
-|------|-----------|
-| **Rule 1:** Always inspect schema first | Without this, the LLM would guess column names from its training data ("title" instead of "video_title"), producing SQL errors. Inspecting the actual schema guarantees correct column references. |
-| **Rule 2:** Never execute DML | **Security critical.** The SQL toolkit technically allows any SQL. Without this rule, a malicious or confused prompt could trigger `DELETE FROM youtube_history`. The rule creates a defense-in-depth layer beyond the toolkit's own restrictions. |
-| **Rule 3:** Self-correct on errors | SQL errors are inevitable (wrong joins, type mismatches). Without self-correction, one error would terminate the conversation. With it, the agent reads the Postgres error message (e.g., "column 'titles' does not exist"), fixes the query (changes to `video_title`), and retries. This typically succeeds in 1-2 retries. |
-| **Rule 4:** Summarize massive results | A naive `SELECT * FROM youtube_history` could return 10,000 rows. The LLM would attempt to include all of them in its response, exceeding its output token limit and producing truncated, useless output. This rule forces summarization: "Found 10,247 records. First 3: ... Last 3: ..." |
-| **Rules 5-6:** Tool routing hints | These are soft routing hints that complement the tool docstrings. They tell the LLM "if the question sounds like X, prefer tool Y". This reduces ambiguity when a question could plausibly use either SQL or semantic search. |
-| **Rule 7:** Tool combination | Explicitly grants permission to use multiple tools in one turn. Without this, some LLMs default to using exactly one tool per question. |
-| **Rule 8:** Friendly tone | Ensures the raw SQL results or tool outputs are translated into natural language rather than dumped as raw data tables. |
-| **Rule 9:** Longitudinal report routing | The `generate_longitudinal_report` tool is expensive (runs 3 complex SQL queries). This rule ensures it's only called for broad evolution questions, not for simple "what did I watch yesterday?" queries. |
-
-#### 4.5.6 Traced Walkthrough — A Multi-Tool Query
-
-Let's trace exactly what happens when the user asks:
-
-> **"What cooking videos did I watch in 2023?"**
-
-This question requires *both* semantic understanding ("cooking" is a concept, not a column value) *and* temporal filtering (year 2023). Here's the full agent execution:
+The following trace shows a standard execution flow when answering the combined relational/semantic question: **"What cooking videos did I watch in 2023?"**
 
 ```
 ┌─ STEP 1: Agent Node (LLM Reasoning) ────────────────────────┐
-│                                                              │
 │ Thought: The user wants cooking-related videos from 2023.    │
 │ "Cooking" is a semantic concept, not a column value.         │
 │ I should first check the database schema to understand       │
 │ what columns are available.                                  │
-│                                                              │
 │ Action: sql_db_list_tables()                                 │
 └──────────────────────────────────────────────────────────────┘
                          │
@@ -418,10 +315,8 @@ This question requires *both* semantic understanding ("cooking" is a concept, no
                          │
                          ▼
 ┌─ STEP 3: Agent Node (LLM Reasoning) ────────────────────────┐
-│                                                              │
 │ Thought: I see youtube_history exists. Let me check its      │
 │ schema to know the column names and types.                   │
-│                                                              │
 │ Action: sql_db_schema("youtube_history")                     │
 └──────────────────────────────────────────────────────────────┘
                          │
@@ -431,26 +326,20 @@ This question requires *both* semantic understanding ("cooking" is a concept, no
 │   id SERIAL, video_title TEXT, channel_title TEXT,            │
 │   timestamp TIMESTAMP, embedding VECTOR(384), ...            │
 │ )"                                                           │
-│ Sample rows: [('Python Tutorial', 'Corey Schafer', ...)]     │
 └──────────────────────────────────────────────────────────────┘
                          │
                          ▼
 ┌─ STEP 5: Agent Node (LLM Reasoning) ────────────────────────┐
-│                                                              │
 │ Thought: I can see there's a video_title column and a        │
 │ timestamp column. For the "cooking" concept, I should use    │
 │ the semantic_youtube_search tool. But that tool doesn't      │
 │ filter by year. Let me use it to find cooking-related        │
 │ video titles, then use SQL to filter by year.                │
-│                                                              │
 │ Action: semantic_youtube_search("cooking")                   │
 └──────────────────────────────────────────────────────────────┘
                          │
                          ▼
 ┌─ STEP 6: Tool Node ─────────────────────────────────────────┐
-│ [BGE-small embeds "cooking" → 384-dim vector]                │
-│ [pgvector finds 5 nearest videos by cosine distance]         │
-│                                                              │
 │ Output: "Semantically related videos found:                  │
 │   'Gordon Ramsay Beef Wellington' by GR |                    │
 │   'Making Pasta from Scratch' by Bon Appetit |               │
@@ -461,11 +350,9 @@ This question requires *both* semantic understanding ("cooking" is a concept, no
                          │
                          ▼
 ┌─ STEP 7: Agent Node (LLM Reasoning) ────────────────────────┐
-│                                                              │
 │ Thought: Now I have cooking-related video titles. Let me     │
 │ query the database for these specific titles in 2023 to get  │
 │ exact dates and view counts.                                 │
-│                                                              │
 │ Action: sql_db_query(                                        │
 │   "SELECT video_title, channel_title, timestamp, view_count  │
 │    FROM youtube_history                                      │
@@ -488,10 +375,8 @@ This question requires *both* semantic understanding ("cooking" is a concept, no
                          │
                          ▼
 ┌─ STEP 9: Agent Node (Final Answer) ─────────────────────────┐
-│                                                              │
 │ "Based on your history, I found 2 cooking-related videos     │
 │  you watched in 2023:                                        │
-│                                                              │
 │  1. **Making Pasta from Scratch** by Bon Appetit             │
 │     (March 15, 2023) — 4.2M views                            │
 │  2. **Best Air Fryer Recipes 2023** by Tasty                 │
@@ -499,26 +384,18 @@ This question requires *both* semantic understanding ("cooking" is a concept, no
 └──────────────────────────────────────────────────────────────┘
 ```
 
-The agent terminates when the LLM produces an `AIMessage` with `content` but no `tool_calls`. The final message (`messages[-1].content`) is what gets returned to Flutter as the response.
+The agent execution terminates automatically when the LLM returns a final answer message containing no further tool calls.
 
-**Why this matters:** Every Thought, Action, and Observation is preserved in the message list. If you needed to debug why the agent gave a wrong answer, you could inspect `result["messages"]` to see exactly what SQL it wrote, what the database returned, and how the LLM interpreted it. This transparency is impossible with black-box chain architectures.
+#### 4.5.5 Trace Extraction & UI Mapping
 
-#### 4.5.7 The Message Protocol & UI Execution Trace Extraction
-
-To provide full transparency, the system exposes the agent's intermediate steps (Thought-Action-Observation loop) directly to the user interface in a beautiful, collapsible timeline.
+To maintain execution transparency, intermediate thoughts, tool calls, and observations are parsed sequentially in Python and mapped to a collapsible state model inside Flutter (`main.dart`):
 
 ##### 1. Python Trace Parsing
 
-Every agent invocation in `app.py` returns the full LangGraph state `messages` list. The backend extracts these steps using a sequential parsing loop:
-
 ```python
-# Pass user's query into the LangGraph Agent
 result = DBState.agent_executor.invoke({"messages": [("user", request.query)]})
-
-# Extract the final AI response text
 final_answer = result["messages"][-1].content
 
-# Extract agent execution trace steps
 steps = []
 messages = result.get("messages", [])
 i = 0
@@ -528,7 +405,6 @@ while i < len(messages):
         thought = msg.content or ""
         actions = [{"name": tc.get("name"), "args": tc.get("args")} for tc in msg.tool_calls]
         
-        # Gather all subsequent tool observations for this AI turn
         observations = []
         i += 1
         while i < len(messages) and messages[i].type == "tool":
@@ -544,24 +420,7 @@ while i < len(messages):
     i += 1
 ```
 
-This transforms the flat list of `MessagesState` elements into a structured JSON list:
-
-```json
-{
-  "response": "Based on your history, you watched...",
-  "steps": [
-    {
-      "thought": "Let me search for cooking videos first.",
-      "actions": [{"name": "semantic_youtube_search", "args": {"query": "cooking"}}],
-      "observations": ["Gordon Ramsay Beef Wellington..."]
-    }
-  ]
-}
-```
-
-##### 2. Flutter JSON Document Persistence
-
-The Flutter frontend (`main.dart`) maps this response into the `ChatMessage` model. Because we use a document-store model based on local JSON files (`chat_sessions.json`), the entire execution trace is serialized and persisted with 100% build reliability:
+##### 2. Flutter Chat Model Serialization
 
 ```dart
 class ChatMessage {
@@ -570,7 +429,6 @@ class ChatMessage {
   final DateTime timestamp;
   final List<dynamic>? steps;
 
-  // Serializes steps to local JSON file
   Map<String, dynamic> toJson() => {
     'text': text,
     'isUser': isUser,
@@ -580,40 +438,6 @@ class ChatMessage {
 }
 ```
 
-##### 3. User Interface Design & "Why Collapsible?"
-
-In the chat UI, the trace is rendered using a custom `AgentTraceWidget` that displays a collapsible accordion titled `View Agent Execution Trace (N steps)`.
-
-* **Design Rationale**: Displaying the full terminal logs and thoughts inline by default causes extreme visual noise, disrupting the conversational flow. Placing them inside an expandable section preserves a clean UI while giving power-users and developers instant access to the agent's exact SQL queries, parameters, and database observations.
-
-The agent terminates when the LLM produces an `AIMessage` with `content` but no `tool_calls`. Every Thought, Action, and Observation is preserved — you can inspect `result["messages"]` to debug exactly what SQL was written, what the database returned, and how the LLM interpreted it. This transparency is impossible with black-box chain architectures.
-
-#### 4.5.8 Error Self-Correction in Practice
-
-When the agent writes bad SQL (and it will — no LLM is perfect), the error becomes an Observation that the LLM can learn from:
-
-```
-Step 1: LLM writes:  SELECT titles FROM youtube_history LIMIT 5
-Step 2: Tool returns: ERROR: column "titles" does not exist.
-                      Hint: Perhaps you meant "video_title".
-Step 3: LLM reasons: The column is called video_title, not titles.
-                      Let me fix that.
-Step 4: LLM writes:  SELECT video_title FROM youtube_history LIMIT 5
-Step 5: Tool returns: [('Python Tutorial', ...), ...]
-Step 6: LLM answers: Here are 5 videos from your history...
-```
-
-This self-correction loop is **why Rule 1 (always inspect schema first) exists**. If the agent checks `sql_db_schema` before writing SQL, it gets the correct column names upfront and avoids the error-retry cycle entirely. The rule is a performance optimization — it prevents wasted LLM calls and database round-trips.
-
-#### 4.5.9 Why Not Alternatives? — Detailed Comparison
-
-| Architecture | How It Works | Why It Fails For Our Use Case |
-|-------------|-------------|-------------------------------|
-| **Naive RAG Chain** (embed → retrieve → generate) | Embeds the user question, retrieves top-K similar documents from a vector store, feeds them to the LLM | Cannot answer "how many videos did I watch?" — this requires SQL aggregation (`COUNT(*)`), not document retrieval. The chain has no concept of structured queries. |
-| **SQL-only Agent** (text-to-SQL) | Converts natural language directly to SQL | Cannot answer "find videos about cooking" — SQL `LIKE` patterns miss semantically similar results. There's no vector search capability. |
-| **Multi-Chain Router** (classify → route to chain A or B) | A classifier LLM first categorizes the question type, then routes to the appropriate chain | Fails on **combined queries** like "What cooking videos did I watch in 2023?" — this needs both semantic search AND SQL in sequence. A router picks one chain, not a combination. Also adds latency (extra LLM call for classification). |
-| **Function Calling (OpenAI-style)** | LLM generates structured function calls in a single turn | Can only call tools *once per turn*. Our "cooking videos in 2023" example requires 4 sequential tool calls where each call's output informs the next. Single-turn function calling can't do multi-step reasoning. |
-| **LangGraph ReAct Agent** ✅ | LLM reasons, acts, observes, repeats until done | Handles all question types. Dynamically combines tools. Self-corrects on errors. No fixed path — the execution trace is as long or short as the question demands. |
 ### 4.6 Why YouTube API Enrichment?
 
 Google Takeout CSVs contain only URLs and timestamps — no video titles, channels, or categories. The YouTube Data API v3 enriches each record with:
