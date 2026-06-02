@@ -1192,81 +1192,103 @@ The sidebar drawer provides a ChatGPT-like interface for managing multiple conve
 
 ### 10.1 Prerequisites
 
-| Component | Version | Purpose |
-|-----------|---------|---------|
-| Python | 3.10+ | Backend runtime |
-| Flutter | 3.x | Frontend framework |
-| Supabase account | Free tier | Managed PostgreSQL + pgvector |
-| DeepSeek API key | — | LLM for RAG agent + drift analysis |
-| YouTube API key | — | Video metadata enrichment (optional for Search-only) |
+| Component | Minimum Version | Purpose |
+|-----------|-----------------|---------|
+| Supabase Account | Free Tier | Managed PostgreSQL database with `pgvector` extension |
+| DeepSeek API Key | — | Primary LLM agent reasoning, SQL generation, and taxonomy drift clustering |
+| YouTube API Key | — | Option A Video metadata enrichment (optional) |
+| Local Chrome browser | — | Option B Automated local Chrome profile ingestion (optional) |
 
-### 10.2 Step 1: Set Up Supabase
+---
 
-1. Create a free project at [supabase.com](https://supabase.com)
-2. Note your **Database Password** (set during project creation)
-3. Click **Connect** → **Transaction Pooler** and copy the connection string
-4. Open the **SQL Editor** and run the schema setup (see `SUPABASE_SETUP.md`)
+### 10.2 Option 1: Standalone Desktop Launcher (Primary / Recommended)
 
-### 10.3 Step 2: Start the Backend
+No local installation of Python, Flutter SDK, virtual environments, or C compilers is required. The system compiles down to a monolithic native release package.
 
-```bash
-cd D:\GOOGLE_TAKEOUT_RAG
-pip install -r requirements.txt
+1. Locate the Standalone Release Archive: [google-takeout-rag.zip](file:///d:/GOOGLE_TAKEOUT_RAG/google-takeout-rag.zip) (pre-packaged and ready in the project folder).
+2. Extract the ZIP package into a local folder.
+3. Double-click `google-takeout-rag.exe`. 
+4. The system automatically launches the local FastAPI backend (`backend/app.exe`) in the background on port `8000` and displays the connection screen.
 
-# Also install the LangChain/ML stack:
-pip install langchain langchain-openai langchain-community langchain-huggingface
-pip install langgraph sqlalchemy psycopg2-binary sentence-transformers
+---
 
-python app.py
-```
+### 10.3 Option 2: Development / Source Mode (For Developers)
 
-Or simply double-click `start_api.bat`.
+If you wish to run, debug, or modify the source code directly:
 
-The server starts at `http://localhost:8000`. The BGE embedding model downloads automatically on first run (~130MB).
+1. **Start the FastAPI Backend:**
+   ```bash
+   cd D:\GOOGLE_TAKEOUT_RAG
+   # Activate your virtual environment and install requirements:
+   .\venv\Scripts\activate.bat
+   pip install -r requirements.txt
+   
+   # Run the server:
+   python app.py
+   ```
+   *The server starts at `http://localhost:8000`. The Sentence-Transformers BGE model (~130MB) will download automatically on first launch.*
 
-### 10.4 Step 3: Launch the Flutter App
+2. **Launch the Flutter Frontend:**
+   ```bash
+   cd D:\GOOGLE_TAKEOUT_RAG\frontend\flutter_application
+   flutter pub get
+   flutter run -d windows
+   ```
 
-```bash
-cd D:\GOOGLE_TAKEOUT_RAG\frontend\flutter_application
-flutter pub get
-flutter run -d windows
-```
+---
 
-### 10.5 Step 4: Connect to Supabase (First Screen)
+### 10.4 Step 2: Set Up Supabase Database
 
-When the app launches, a connection dialog appears:
+1. Register a free account at [supabase.com](https://supabase.com).
+2. Create a new database project and note down your database password.
+3. Go to **Project Settings** → **Database** → **Connection String** → Select **Transaction Pooler** (Port `6543`) and copy the URI.
+4. Click **SQL Editor** in the Supabase dashboard, create a new query, paste the contents of `SUPABASE_SETUP.md` (schemas, HNSW indices, and functions), and click **Run**.
 
-1. **Connection URL** — Paste your Supabase connection string
-2. **Raw Database Password** — Enter the password you set during project creation
-3. **DeepSeek API Key** — Enter your API key from [platform.deepseek.com](https://platform.deepseek.com)
+---
 
-Click **"Connect & Initialize"**. The backend will:
-- Verify the database connection
-- Auto-create any missing tables (`interest_categories`, `log_classifications`)
-- Seed the default interest taxonomy (28 categories)
-- Initialize the LangGraph agent
+### 10.5 Step 3: Connect the App
 
-### 10.6 Step 5: Upload Your Data
+1. Launch `google-takeout-rag.exe` (or run in Dev mode).
+2. Paste the Supabase connection string under **Connection URL**.
+3. Enter your raw database password (the app uses this to perform URL-safe encoding for special characters).
+4. Enter your DeepSeek API Key from [platform.deepseek.com](https://platform.deepseek.com).
+5. Click **"Connect & Initialize"**. The app will automatically establish background links, run schema migration, seed the initial taxonomy categories, and boot the RAG agent.
+   - *If saved credentials exist on your computer, the connection dialog is suppressed and the app connects silently in the background.*
 
-1. Click the **upload icon** (📤) in the app bar
-2. Enter your **YouTube API Key** (optional — required only for YouTube data enrichment)
-3. Click **"Pick File & Upload"** and select your Google Takeout CSV or HTML file
-4. Wait for the enrichment phase to complete (~10-30 seconds depending on file size)
-5. The background indexing banner appears — embeddings and classifications are being generated
-6. Once the banner disappears and you see "🎉 Ingestion & Indexing pipeline completed successfully!", you're ready to chat
+---
 
-### 10.7 Step 6: Ask Questions
+### 10.6 Step 4: Ingest Your Browser History
 
-Type your question in the input field and press Enter or click Send:
+Click the **Upload Icon** (📤) in the Toolbar to choose an ingestion method:
 
-- **Exact queries**: "How many YouTube videos did I watch in 2024?" → SQL
-- **Semantic queries**: "Find videos about machine learning" → Vector search
-- **Evolution reports**: "How have my interests changed over the years?" → Longitudinal report
-- **Combined**: "Which AI channels did I watch most in 2023?" → SQL + semantic
+#### Option A: Google Takeout Ingestion (Static Upload)
+- Useful if you have a downloaded Google Takeout ZIP or extracted CSV/HTML activity files.
+- Provide a YouTube API Key if uploading YouTube history to enrich videos with titles, descriptions, and category metadata.
+- Select your file and click **"Pick Takeout & Upload"**.
 
-### 10.8 Step 7: Review Taxonomy Drift (Optional)
+#### Option B: Local Chrome Ingestion (1-Click Auto-Ingest)
+- Automatically copies and parses your active local Google Chrome browser history without needing to close Chrome.
+- Select your active Chrome profile folder from the discovered dropdown list (e.g., `Profile 5`, `Default`).
+- Click **"⚡ 1-Click Auto Ingest"**. The system instantly copies the SQLite DB, extracts searches and YouTube views, and transfers them to the database.
+- *Ingestion runs on a high-performance batch-localized index matching pipeline to prevent timeouts on large datasets.*
 
-Click the **brain icon** (🧠) in the app bar to scan for unclassified activity. If new interest patterns are detected, the system suggests new categories. Approve them to expand your personal taxonomy.
+---
+
+### 10.7 Step 5: Chat with Your Digital Psychology Agent
+
+Once the indexing banner transitions to `"🎉 Ingestion & Indexing pipeline completed successfully!"`, all your logs are vector-embedded and classified. You can begin querying:
+- **Exact aggregations**: *"Which domain did I visit the most in May 2026?"*
+- **Conceptual searches**: *"Find stackoverflow links where I researched python async issues"*
+- **Habit changes**: *"Give me a chronological report of how my interests have evolved over the years"*
+
+---
+
+### 10.8 Step 6: Review Taxonomy Drift
+
+As you browse the web, your interests change. Click the **Brain Icon** (🧠) to run drift analysis:
+- The agent scans for logs classified with low confidence.
+- The DeepSeek LLM clusters these anomalies and suggests new interest categories.
+- Check the approved categories in the dialog, click **"Apply New Interests"**, and the database taxonomy will automatically expand and re-classify your history.
 
 ---
 
@@ -1390,9 +1412,13 @@ The `chat_sessions.json` file should exist at this path after the first conversa
 ```
 D:\GOOGLE_TAKEOUT_RAG\
 │
-├── app.py                    # FastAPI backend: all endpoints, RAG agent, ingestion pipeline
+├── app.py                    # FastAPI backend: all endpoints, RAG agent, high-performance ingestion
 ├── db_config.py              # Database credential management & connection validation
 ├── parse_takeout.py          # HTML parser for Google Takeout "My Activity" format
+├── parse_chrome_history.py   # Option B: local Chrome history database reader & domain extractor
+├── build_release.ps1         # Windows standalone build orchestrator (PyInstaller + Flutter release)
+├── repackage_release.ps1     # Quick repackager helper (speeds up packaging by reusing dist/app.exe)
+├── google-takeout-rag.zip    # Pre-packaged 1-click standalone Windows zip release archive
 ├── youtube_csv_enrich.py     # YouTube API enrichment (standalone CLI version)
 ├── classify_logs.py          # Log classification engine (standalone CLI version)
 ├── generate_embeddings.py    # BGE embedding generator (standalone CLI version)
@@ -1411,7 +1437,7 @@ D:\GOOGLE_TAKEOUT_RAG\
 └── frontend/
     └── flutter_application/
         ├── lib/
-        │   └── main.dart     # Complete Flutter app: UI, state, chat history, API client
+        │   └── main.dart     # Complete Flutter app: UI, hardened interactive locks, API client
         └── pubspec.yaml      # Flutter dependencies (path_provider, http, file_picker, etc.)
 ```
 
