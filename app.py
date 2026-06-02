@@ -98,10 +98,24 @@ def fetch_with_retry(url, params, max_retries=3):
     print("❌ Max retries reached. Skipping chunk.")
     return None
 
+def normalize_timestamp_str(ts):
+    if not ts:
+        return ""
+    if hasattr(ts, 'strftime'):
+        return ts.strftime('%Y-%m-%d %H:%M:%S')
+    try:
+        parsed = pd.to_datetime(ts)
+        if pd.notna(parsed):
+            return parsed.strftime('%Y-%m-%d %H:%M:%S')
+    except Exception:
+        pass
+    return str(ts)
+
 def extract_video_id(links):
     if pd.isna(links):
         return None
-    match = re.search(r'watch\?v=([a-zA-Z0-9_-]{11})', str(links))
+    url_str = str(links)
+    match = re.search(r'(?:v=|\/shorts\/|\/youtu\.be\/|embed\/)([a-zA-Z0-9_-]{11})', url_str)
     return match.group(1) if match else None
 
 def enrich_youtube_data(df, api_key):
@@ -1204,9 +1218,13 @@ def store_youtube_history(df):
             seen_in_upload = set()
             for _, row in df.iterrows():
                 link = row.get('Links')
-                if not link or link in seen_in_upload:
+                ts = normalize_timestamp_str(row.get('Timestamp'))
+                if not link:
                     continue
-                seen_in_upload.add(link)
+                key = (link, ts)
+                if key in seen_in_upload:
+                    continue
+                seen_in_upload.add(key)
                 unique_df_rows.append(row)
                 
             insert_query = text("""
@@ -1225,18 +1243,22 @@ def store_youtube_history(df):
                 chunk_rows = unique_df_rows[k:k + batch_size]
                 chunk_links = [row.get('Links') for row in chunk_rows]
                 
-                # Fetch existing links in database only for the active chunk
+                # Fetch existing links/timestamps in database only for the active chunk
                 with DBState.engine.connect() as conn:
                     placeholders = ", ".join(f":l{i}" for i in range(len(chunk_links)))
-                    query = text(f"SELECT links FROM youtube_history WHERE links IN ({placeholders})")
+                    query = text(f"SELECT links, timestamp FROM youtube_history WHERE links IN ({placeholders})")
                     params = {f"l{i}": link for i, link in enumerate(chunk_links)}
-                    existing_chunk_links = {row[0] for row in conn.execute(query, params).fetchall()}
+                    existing_records_set = {
+                        (row[0], normalize_timestamp_str(row[1])) 
+                        for row in conn.execute(query, params).fetchall()
+                    }
                 
                 # Prepare insert chunk by filtering out database duplicates
                 insert_batch = []
                 for row in chunk_rows:
                     link = row.get('Links')
-                    if link in existing_chunk_links:
+                    ts = normalize_timestamp_str(row.get('Timestamp'))
+                    if (link, ts) in existing_records_set:
                         continue
                     
                     insert_batch.append({
@@ -1266,7 +1288,7 @@ def store_youtube_history(df):
                 raise oe
         except Exception as e:
             print(f"❌ Error storing YouTube history: {e}")
-            return 0
+            raise e
 
 def store_search_history(df):
     """Insert processed search data into database in high-performance batches"""
@@ -1276,6 +1298,16 @@ def store_search_history(df):
     
     df = df.where(pd.notnull(df), None)
     
+    # Dynamic check: Does page_title exist in search_history?
+    has_page_title = False
+    try:
+        from sqlalchemy import inspect
+        inspector = inspect(DBState.engine)
+        columns = [col['name'] for col in inspector.get_columns('search_history')]
+        has_page_title = 'page_title' in columns
+    except Exception as e:
+        print(f"⚠️ Warning checking search_history columns: {e}. Defaulting to has_page_title = False")
+        
     max_retries = 3
     for attempt in range(max_retries):
         try:
@@ -1287,45 +1319,85 @@ def store_search_history(df):
             seen_in_upload = set()
             for _, row in df.iterrows():
                 link = row.get('Links')
-                if not link or link in seen_in_upload:
+                ts = normalize_timestamp_str(row.get('Timestamp'))
+                action = row.get('Action')
+                
+                key = (link, ts) if link else (action, ts)
+                if key in seen_in_upload:
                     continue
-                seen_in_upload.add(link)
+                seen_in_upload.add(key)
                 unique_df_rows.append(row)
                 
-            insert_query = text("""
-                INSERT INTO search_history 
-                (links, actual_website, timestamp, service, page_title)
-                VALUES (:links, :website, :timestamp, 'Search', :page_title)
-            """)
+            if has_page_title:
+                insert_query = text("""
+                    INSERT INTO search_history 
+                    (links, actual_website, timestamp, service, page_title, action)
+                    VALUES (:links, :website, :timestamp, 'Search', :page_title, :action)
+                """)
+            else:
+                insert_query = text("""
+                    INSERT INTO search_history 
+                    (links, actual_website, timestamp, service, action)
+                    VALUES (:links, :website, :timestamp, 'Search', :action)
+                """)
             
             def log_search_error(item, err):
-                print(f"❌ Failed to insert Search row {item.get('links')}: {err}")
+                print(f"❌ Failed to insert Search row {item.get('links') or item.get('action')}: {err}")
                 
             # Process in localized chunks of 500
             for k in range(0, len(unique_df_rows), batch_size):
                 chunk_rows = unique_df_rows[k:k + batch_size]
-                chunk_links = [row.get('Links') for row in chunk_rows]
                 
-                # Fetch existing links in database only for the active chunk
+                # Fetch existing links/timestamps in database only for the active chunk
                 with DBState.engine.connect() as conn:
-                    placeholders = ", ".join(f":l{i}" for i in range(len(chunk_links)))
-                    query = text(f"SELECT links FROM search_history WHERE links IN ({placeholders})")
-                    params = {f"l{i}": link for i, link in enumerate(chunk_links)}
-                    existing_chunk_links = {row[0] for row in conn.execute(query, params).fetchall()}
+                    chunk_links = [row.get('Links') for row in chunk_rows if row.get('Links')]
+                    
+                    existing_records_set = set()
+                    
+                    # Look up by links
+                    if chunk_links:
+                        placeholders = ", ".join(f":l{i}" for i in range(len(chunk_links)))
+                        query = text(f"SELECT links, timestamp FROM search_history WHERE links IN ({placeholders})")
+                        params = {f"l{i}": link for i, link in enumerate(chunk_links)}
+                        for db_link, db_ts in conn.execute(query, params).fetchall():
+                            existing_records_set.add((db_link, normalize_timestamp_str(db_ts)))
+                    
+                    # Look up by action/timestamp for rows with null/empty links
+                    null_link_rows = [r for r in chunk_rows if not r.get('Links')]
+                    if null_link_rows:
+                        clauses = []
+                        params = {}
+                        for idx, r in enumerate(null_link_rows):
+                            clauses.append(f"(action = :act{idx} AND timestamp = :ts{idx})")
+                            params[f"act{idx}"] = r.get('Action')
+                            params[f"ts{idx}"] = r.get('Timestamp')
+                        
+                        or_clause = " OR ".join(clauses)
+                        query = text(f"SELECT action, timestamp FROM search_history WHERE {or_clause}")
+                        for db_action, db_ts in conn.execute(query, params).fetchall():
+                            existing_records_set.add((db_action, normalize_timestamp_str(db_ts)))
                 
                 # Prepare insert chunk by filtering out database duplicates
                 insert_batch = []
                 for row in chunk_rows:
                     link = row.get('Links')
-                    if link in existing_chunk_links:
+                    ts = normalize_timestamp_str(row.get('Timestamp'))
+                    action = row.get('Action')
+                    
+                    key = (link, ts) if link else (action, ts)
+                    if key in existing_records_set:
                         continue
                     
-                    insert_batch.append({
+                    item = {
                         "links": link,
                         "website": row.get('Actual_Website'),
                         "timestamp": row.get('Timestamp'),
-                        "page_title": row.get('Page_Title')
-                    })
+                        "action": action
+                    }
+                    if has_page_title:
+                        item["page_title"] = row.get('Page_Title')
+                        
+                    insert_batch.append(item)
                 
                 if insert_batch:
                     rows_inserted += insert_chunk_recursive(DBState.engine, insert_query, insert_batch, log_search_error)
@@ -1344,7 +1416,7 @@ def store_search_history(df):
                 raise oe
         except Exception as e:
             print(f"❌ Error storing search history: {e}")
-            return 0
+            raise e
 
 # ==========================================
 # 5. BUILD FASTAPI APP

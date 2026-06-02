@@ -42,6 +42,7 @@ CREATE TABLE search_history (
     timestamp TIMESTAMP,
     links TEXT,
     actual_website TEXT,
+    page_title TEXT,
     drift_attempts INT DEFAULT 0 -- Added to prevent infinite taxonomy drift loops on noise
 );
 
