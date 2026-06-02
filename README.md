@@ -727,17 +727,35 @@ The sidebar drawer provides a ChatGPT-like interface for managing multiple conve
 
 ## 10. User Manual: Getting Started
 
-### 10.1 Prerequisites
+### 10.1 Prerequisites & API Setup Guide
 
-| Component | Minimum Version | Purpose |
-|-----------|-----------------|---------|
-| Supabase Account | Free Tier | Managed PostgreSQL database with `pgvector` extension |
-| DeepSeek API Key | — | Primary LLM agent reasoning, SQL generation, and taxonomy drift clustering |
-| YouTube API Key | — | Option A Video metadata enrichment (optional) |
-| Local Chrome browser | — | Option B Automated local Chrome profile ingestion (optional) |
+Before running the application, you must set up the external accounts and credentials required by the full-stack system. Follow this clear, step-by-step setup checklist:
+
+#### 1. Supabase Database (Requires GitHub Account)
+Supabase hosts the managed PostgreSQL database and handles semantic `pgvector` indexing.
+* **Step 1.1: Sign Up**: Go to [supabase.com](https://supabase.com) and click **Sign Up**. Note that registering an account requires a **GitHub account**.
+* **Step 1.2: Create Project**: Click **New Project**, assign an organization, choose a project name, and pick a database region close to you.
+* > [!IMPORTANT]
+  > **Remember Your Database Password!**
+  > During project creation, you must specify a strong database password. Write this password down immediately and save it in a secure location. **It cannot be retrieved later** once the project is initialized (you can only reset it, which requires updating any active applications).
+* **Step 1.3: Retrieve Connection String**: Once the project is created, click the **Connect** button in the top navigation bar (or navigate to *Project Settings → Database → Connection String*).
+* **Step 1.4: Copy Pooler URI**: In the Connect modal, select the **Transaction Pooler** connection option (using Port `6543`) and copy the complete PostgreSQL connection URI.
+  * *Example format: `postgresql://postgres.[project_ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres`*
+
+#### 2. DeepSeek AI (Primary Agent LLM)
+DeepSeek Chat (`deepseek-chat`) powers the LangGraph ReAct reasoning agent, SQL query generation, and taxonomy drift clustering.
+* **Step 2.1: Register**: Sign up for a developer account at [platform.deepseek.com](https://platform.deepseek.com).
+* **Step 2.2: Create API Key**: Navigate to the **API Keys** tab in the sidebar navigation.
+* **Step 2.3: Save Key**: Click **Create API Key**, specify a descriptive label, copy the generated key (`sk-...`), and save it securely.
+
+#### 3. YouTube Data API v3 (Optional — For Video Enrichment)
+If you plan to ingest YouTube watch histories, a Google Cloud API Key is required to resolve Takeout URLs into titles, descriptions, and channel categories.
+* **Step 3.1: Go to Google Cloud Console**: Log into the Google Cloud Developer Portal at [console.cloud.google.com](https://console.cloud.google.com).
+* **Step 3.2: Enable YouTube API**: Create a new Google Cloud project, search for **YouTube Data API v3** in the top search bar, and click **Enable**.
+* **Step 3.3: Create Credentials**: Navigate to **APIs & Services** → **Credentials** in the sidebar.
+* **Step 3.4: Generate API Key**: Click **Create Credentials** at the top of the screen and choose **API Key**. Copy the generated key and save it.
 
 ---
-
 ### 10.2 Option 1: Standalone Desktop Launcher (Primary / Recommended)
 
 No local installation of Python, Flutter SDK, virtual environments, or C compilers is required. The system compiles down to a monolithic native release package.
