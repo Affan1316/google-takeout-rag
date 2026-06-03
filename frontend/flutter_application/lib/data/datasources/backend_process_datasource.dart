@@ -64,8 +64,6 @@ class BackendProcessDataSource {
 
   Future<String> _findWorkingPythonExecutable(Directory backendDir) async {
     final List<String> candidates = [
-      'D:\\GOOGLE_TAKEOUT_RAG\\venv\\Scripts\\python.exe', // Hardcoded verified path
-      'D:\\GOOGLE_TAKEOUT_RAG\\.venv\\Scripts\\python.exe',
       '${backendDir.path}/venv/Scripts/python.exe',
       '${backendDir.path}/.venv/Scripts/python.exe',
       'python',

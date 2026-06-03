@@ -14,7 +14,7 @@ try:
     from db_config import get_connection_from_user, get_db_engine
 except ImportError:
     print("❌ ERROR: db_config.py not found in the current directory.")
-    print("Please run this script from the root workspace folder: d:\\GOOGLE_TAKEOUT_RAG")
+    print("Please run this script from the root workspace folder.")
     sys.exit(1)
 
 
