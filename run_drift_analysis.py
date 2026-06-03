@@ -126,13 +126,39 @@ def run_drift_analysis():
         print("\nEmbedding and inserting new categories...")
         for cat in new_categories:
             vec = embeddings_model.embed_query(cat)
+            
+            # Find closest parent category using pgvector similarity
+            parent_id = None
+            try:
+                closest_parent = conn.execute(
+                    text("""
+                        SELECT id, category_name, 1 - (embedding <=> :vec::vector) AS similarity
+                        FROM interest_categories
+                        WHERE parent_id IS NULL
+                        ORDER BY embedding <=> :vec::vector
+                        LIMIT 1
+                    """),
+                    {"vec": str(vec)}
+                ).fetchone()
+                
+                if closest_parent:
+                    p_id, p_name, sim = closest_parent
+                    # Threshold of 0.50 for parent assignment
+                    if sim >= 0.50:
+                        parent_id = p_id
+                        print(f"  └─ Mapped '{cat}' to parent '{p_name}' (similarity: {sim:.3f})")
+                    else:
+                        print(f"  └─ '{cat}' is orthogonal (max similarity to {p_name} is {sim:.3f}), inserting at root.")
+            except Exception as pe:
+                print(f"  ⚠️ Error finding closest parent for {cat}: {pe}")
+            
             # Insert as a personal category (is_global = false)
             conn.execute(
                 text("""
                     INSERT INTO interest_categories (category_name, embedding, is_global, parent_id)
-                    VALUES (:name, :vec, false, NULL)
+                    VALUES (:name, :vec, false, :parent_id)
                 """),
-                {"name": cat, "vec": str(vec)}
+                {"name": cat, "vec": str(vec), "parent_id": parent_id}
             )
             print(f"  └─ Inserted: {cat}")
             

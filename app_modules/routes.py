@@ -654,12 +654,35 @@ async def apply_drift(request: ApplyDriftRequest, background_tasks: BackgroundTa
                     continue
                     
                 vec = embeddings_model.embed_query(cat)
+                
+                # Find closest parent category using pgvector similarity
+                parent_id = None
+                try:
+                    closest_parent = conn.execute(
+                        text("""
+                            SELECT id, category_name, 1 - (embedding <=> :vec::vector) AS similarity
+                            FROM interest_categories
+                            WHERE parent_id IS NULL
+                            ORDER BY embedding <=> :vec::vector
+                            LIMIT 1
+                        """),
+                        {"vec": str(vec)}
+                    ).fetchone()
+                    
+                    if closest_parent:
+                        p_id, p_name, sim = closest_parent
+                        if sim >= 0.50:
+                            parent_id = p_id
+                            print(f"Mapped '{cat}' to parent '{p_name}' (similarity: {sim:.3f}) in route")
+                except Exception as pe:
+                    print(f"Error finding closest parent for {cat} in route: {pe}")
+
                 conn.execute(
                     text("""
                         INSERT INTO interest_categories (category_name, embedding, is_global, parent_id)
-                        VALUES (:name, :vec, false, NULL)
+                        VALUES (:name, :vec, false, :parent_id)
                     """),
-                    {"name": cat, "vec": str(vec)}
+                    {"name": cat, "vec": str(vec), "parent_id": parent_id}
                 )
             
             print("Wiping low-confidence classifications so they can be re-categorized...")
