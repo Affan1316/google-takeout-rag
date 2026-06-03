@@ -8,6 +8,37 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from .state import DBState
 
+def is_noise_url(url):
+    """
+    Deterministically identifies if a URL is background system noise,
+    ad trackers, redirects, telemetry, CDNs, or OAuth login loops.
+    """
+    if not url or not isinstance(url, str):
+        return True
+    
+    url_lower = url.lower()
+    
+    # Common noise keywords/patterns in domain or path
+    noise_patterns = [
+        # Ads
+        r'doubleclick\.net', r'googleads', r'adsystem', r'adnxs', r'adservice', r'pagead', r'taboola', r'outbrain', r'criteo',
+        # Analytics / Telemetry
+        r'google-analytics\.com', r'analytics', r'telemetry', r'segment\.io', r'mixpanel', r'hotjar', r'sentry\.io', r'datadoghq',
+        # Pixels / Facebook tracking
+        r'/tr/\?id=', r'facebook\.net/tr', r'ping', r'pixel', r'telemetry',
+        # Auth / Login redirects
+        r'/oauth', r'/signin', r'/login', r'/auth/callback', r'accounts\.google\.com', r'login\.microsoftonline\.com',
+        # CDNs and static asset domains
+        r'cloudfront\.net', r'fastly\.net', r'gstatic\.com', r'googleapis\.com', r'cdnjs\.cloudflare\.com', r'favicon'
+    ]
+    
+    for pattern in noise_patterns:
+        if re.search(pattern, url_lower):
+            return True
+            
+    return False
+
+
 def fetch_dynamic_categories(api_key):
     """Fetches up-to-date YouTube categories directly from the API."""
     print("Fetching active YouTube categories...")
@@ -192,8 +223,10 @@ def get_actual_website(url):
         return "Parsing Error"
 
 def process_search_data(df):
-    """Extracts actual website domains from search data."""
+    """Extracts actual website domains from search data and filters out noise URLs."""
     print(f"Processing Search data with {len(df)} rows...")
+    # Drop rows that are noise URLs (ads, trackers, redirects, telemetry, etc.)
+    df = df[~df['Links'].apply(is_noise_url)]
     df['Actual_Website'] = df['Links'].apply(get_actual_website)
     return df
 

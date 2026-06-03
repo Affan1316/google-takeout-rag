@@ -29,6 +29,37 @@ MONTH_MAP = {
     'junho': 'june', 'julho': 'july', 'outubro': 'october', 'dezembro': 'december'
 }
 
+def is_noise_url(url):
+    """
+    Deterministically identifies if a URL is background system noise,
+    ad trackers, redirects, telemetry, CDNs, or OAuth login loops.
+    """
+    if not url or not isinstance(url, str):
+        return True
+    
+    url_lower = url.lower()
+    
+    # Common noise keywords/patterns in domain or path
+    noise_patterns = [
+        # Ads
+        r'doubleclick\.net', r'googleads', r'adsystem', r'adnxs', r'adservice', r'pagead', r'taboola', r'outbrain', r'criteo',
+        # Analytics / Telemetry
+        r'google-analytics\.com', r'analytics', r'telemetry', r'segment\.io', r'mixpanel', r'hotjar', r'sentry\.io', r'datadoghq',
+        # Pixels / Facebook tracking
+        r'/tr/\?id=', r'facebook\.net/tr', r'ping', r'pixel', r'telemetry',
+        # Auth / Login redirects
+        r'/oauth', r'/signin', r'/login', r'/auth/callback', r'accounts\.google\.com', r'login\.microsoftonline\.com',
+        # CDNs and static asset domains
+        r'cloudfront\.net', r'fastly\.net', r'gstatic\.com', r'googleapis\.com', r'cdnjs\.cloudflare\.com', r'favicon'
+    ]
+    
+    for pattern in noise_patterns:
+        if re.search(pattern, url_lower):
+            return True
+            
+    return False
+
+
 def clean_and_parse_localized_date(date_str):
     """
     Cleans up localized timezone abbreviations and translates non-English month names
@@ -128,6 +159,8 @@ def parse_takeout_html(html_content):
         if links:
             first_link = links[0]
             url = first_link.get('href')
+            if url and is_noise_url(url):
+                continue
             link_text = first_link.get_text(strip=True)
             
             # YouTube Link Detection (watch, shorts, youtu.be, embed)
