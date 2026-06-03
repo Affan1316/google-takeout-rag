@@ -74,6 +74,33 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  void _showDisconnectConfirmDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppTheme.bgCard,
+        title: const Text('Disconnect Database', style: TextStyle(color: Colors.white)),
+        content: const Text(
+          'Are you sure you want to disconnect from the database and delete all cached credentials from local storage?',
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+            onPressed: () => Navigator.pop(context),
+          ),
+          TextButton(
+            child: const Text('Disconnect', style: TextStyle(color: AppTheme.accentCoral)),
+            onPressed: () {
+              Navigator.pop(context);
+              widget.controller.disconnectFromDatabase();
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showTerminalLogs() {
     final ScrollController terminalScrollController = ScrollController();
 
@@ -311,6 +338,13 @@ class _ChatScreenState extends State<ChatScreen> {
                   ? null
                   : _showDriftDialog,
             ),
+            IconButton(
+              icon: const Icon(Icons.link_off_rounded, color: AppTheme.accentCoral),
+              tooltip: 'Disconnect Database (Logout)',
+              onPressed: controller.isLoading || controller.isIndexing
+                  ? null
+                  : _showDisconnectConfirmDialog,
+            ),
           ],
           IconButton(
             icon: const Icon(Icons.terminal_rounded, color: Colors.white70),
@@ -467,19 +501,39 @@ class _ChatScreenState extends State<ChatScreen> {
 
             // Drawer Footer
             Container(
-              padding: const EdgeInsets.all(16.0),
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
               decoration: const BoxDecoration(
                 color: AppTheme.bgDeep,
                 border: Border(top: BorderSide(color: Colors.white10, width: 0.5)),
               ),
-              child: const Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.memory_rounded, size: 14, color: Colors.white38),
-                  SizedBox(width: 6),
-                  Text(
-                    'Local Document Database',
-                    style: TextStyle(color: Colors.white38, fontSize: 11, fontWeight: FontWeight.w500),
+                  if (controller.isConnected) ...[
+                    ListTile(
+                      leading: const Icon(Icons.power_settings_new_rounded, color: AppTheme.accentCoral),
+                      title: const Text(
+                        'Disconnect & Clear Cache',
+                        style: TextStyle(color: AppTheme.accentCoral, fontSize: 13, fontWeight: FontWeight.bold),
+                      ),
+                      dense: true,
+                      onTap: () {
+                        Navigator.pop(context); // Close drawer
+                        _showDisconnectConfirmDialog();
+                      },
+                    ),
+                    const Divider(color: Colors.white10),
+                  ],
+                  const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.memory_rounded, size: 14, color: Colors.white38),
+                      SizedBox(width: 6),
+                      Text(
+                        'Local Document Database',
+                        style: TextStyle(color: Colors.white38, fontSize: 11, fontWeight: FontWeight.w500),
+                      ),
+                    ],
                   ),
                 ],
               ),

@@ -1473,6 +1473,32 @@ async def connect_db(request: DBConnectRequest):
         raise HTTPException(status_code=400, detail=f"Failed to connect: {str(e)}")
 
 # ==========================================
+# ENDPOINT: DISCONNECT FROM DATABASE
+# ==========================================
+@app.post("/disconnect-db")
+async def disconnect_db():
+    """
+    Disconnect from Supabase, clear DBState, clear LangGraph Agent, and clear session cache.
+    """
+    try:
+        print("🔌 Received disconnect-db request. Clearing database state...")
+        DBState.engine = None
+        DBState.agent_executor = None
+        DBState.project_ref = None
+        DBState.password = None
+        DBState.host = None
+        DBState.port = None
+        DBState.llm_api_key = None
+        
+        from db_config import clear_session_cache
+        clear_session_cache()
+        
+        return {"status": "success", "message": "Successfully disconnected and cleared database state."}
+    except Exception as e:
+        print(f"❌ Failed to disconnect: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to disconnect: {str(e)}")
+
+# ==========================================
 # ENDPOINT 2: CHAT (EXISTING)
 # ==========================================
 @app.post("/chat")

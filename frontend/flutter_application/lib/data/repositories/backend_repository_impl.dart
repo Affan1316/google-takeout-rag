@@ -115,4 +115,9 @@ class BackendRepositoryImpl implements BackendRepository {
   Future<bool> deleteSessionFromSupabase(String id) {
     return apiDataSource.deleteSessionFromSupabase(id);
   }
+
+  @override
+  Future<bool> disconnectDatabase() {
+    return apiDataSource.disconnectDatabase();
+  }
 }

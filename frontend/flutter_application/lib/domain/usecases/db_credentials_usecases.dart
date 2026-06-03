@@ -19,6 +19,10 @@ class DbCredentialsUsecases {
     await historyRepository.saveCredentials(creds);
   }
 
+  Future<void> deleteCredentials() async {
+    await historyRepository.deleteCredentials();
+  }
+
   Future<bool> connectDatabase({
     required String projectRef,
     required String password,

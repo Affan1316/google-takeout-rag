@@ -31,4 +31,9 @@ class ChatHistoryRepositoryImpl implements ChatHistoryRepository {
     final models = sessions.map((s) => ChatSessionModel.fromEntity(s)).toList();
     await localDataSource.saveSessions(models);
   }
+
+  @override
+  Future<void> deleteCredentials() async {
+    await localDataSource.deleteCredentials();
+  }
 }

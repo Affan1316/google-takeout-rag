@@ -6,4 +6,5 @@ abstract class ChatHistoryRepository {
   Future<void> saveCredentials(DbCredentials creds);
   Future<List<ChatSession>> loadSessions();
   Future<void> saveSessions(List<ChatSession> sessions);
+  Future<void> deleteCredentials();
 }

@@ -45,6 +45,18 @@ class BackendApiDataSource {
     return response.statusCode == 200;
   }
 
+  Future<bool> disconnectDatabase() async {
+    try {
+      final response = await http.post(
+        Uri.parse(Endpoints.disconnectDb),
+        headers: {'Content-Type': 'application/json'},
+      );
+      return response.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<List<String>> fetchChromeProfiles() async {
     final response = await http.get(Uri.parse(Endpoints.chromeProfiles));
     if (response.statusCode == 200) {

@@ -11,6 +11,7 @@ class Endpoints {
   static String get chat => '$baseUrl/chat';
   static String get uploadCsv => '$baseUrl/upload-and-process-csv';
   static String get connectDb => '$baseUrl/connect-db';
+  static String get disconnectDb => '$baseUrl/disconnect-db';
   static String get status => '$baseUrl/status';
   static String get driftAnalysis => '$baseUrl/drift-analysis';
   static String get applyDrift => '$baseUrl/apply-drift';

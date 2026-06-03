@@ -43,6 +43,17 @@ class LocalHistoryDataSource {
     }
   }
 
+  Future<void> deleteCredentials() async {
+    try {
+      final file = await _getCredsFile();
+      if (await file.exists()) {
+        await file.delete();
+      }
+    } catch (e) {
+      debugPrint('Error deleting db credentials: $e');
+    }
+  }
+
   Future<List<ChatSessionModel>> loadSessions() async {
     try {
       final file = await _getHistoryFile();

@@ -422,6 +422,41 @@ class ChatController extends ChangeNotifier {
     }
   }
 
+  Future<void> disconnectFromDatabase() async {
+    _isLoading = true;
+    notifyListeners();
+
+    try {
+      final success = await backendApiUsecases.disconnectDatabase();
+      if (success) {
+        _addLog("[DISCONNECT] Disconnected backend from database.");
+      } else {
+        _addLog("[DISCONNECT] Backend disconnect endpoint returned failure.");
+      }
+    } catch (e) {
+      _addLog("[DISCONNECT] Error notifying backend: $e");
+    }
+
+    try {
+      await dbCredentialsUsecases.deleteCredentials();
+      _addLog("[DISCONNECT] Deleted saved credentials from local storage.");
+    } catch (e) {
+      _addLog("[DISCONNECT] Error deleting local credentials: $e");
+    }
+
+    _isConnected = false;
+    _isIndexing = false;
+    _serverStatus = "Database Offline";
+
+    addMessage(ChatMessage(
+      text: "🔌 **Disconnected:** Database connection closed and cached credentials have been deleted. You can connect again by clicking 'Connect DB' in the toolbar.",
+      isUser: false,
+    ));
+
+    _isLoading = false;
+    notifyListeners();
+  }
+
   // Supabase Synchronizations
   Future<void> _syncSessionsWithSupabase() async {
     if (!_isConnected) return;

@@ -38,4 +38,8 @@ class BackendApiUsecases {
   Future<Map<String, dynamic>> applyTaxonomyDrift(List<String> categories) async {
     return repository.applyTaxonomyDrift(categories);
   }
+
+  Future<bool> disconnectDatabase() async {
+    return repository.disconnectDatabase();
+  }
 }

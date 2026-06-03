@@ -35,4 +35,5 @@ abstract class BackendRepository {
   Future<List<ChatSession>> fetchSessionsFromSupabase();
   Future<bool> uploadSessionToSupabase(ChatSession session);
   Future<bool> deleteSessionFromSupabase(String id);
+  Future<bool> disconnectDatabase();
 }
